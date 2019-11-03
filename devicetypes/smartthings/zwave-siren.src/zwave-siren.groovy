@@ -37,6 +37,7 @@ metadata {
 		fingerprint mfr: "0258", prod: "0003", model: "1088", deviceJoinName: "NEO Coolcam Siren Alarm"
 		//zw:Fs type:1005 mfr:0129 prod:6F01 model:0001 ver:1.04 zwv:4.33 lib:03 cc:5E,80,5A,72,73,86,70,98 sec:59,2B,71,85,25,7A role:07 ff:8F00 ui:8F00
 		fingerprint mfr: "0129", prod: "6F01", model: "0001", deviceJoinName: "Yale External Siren"
+		fingerprint mfr: "0060", prod: "000C", model: "0002", deviceJoinName: "Everspring Outdoor Solar Siren"
 	}
 
 	simulator {
@@ -68,11 +69,11 @@ metadata {
 
 		// Yale siren only
 		preferences {
-			input name: "alarmLength", type: "number", title: "Alarm length (1-10 min)", range: "1..10"
+			input name: "alarmLength", type: "number", title: "Alarm length", range: "1..10"
 			// defaultValue: 10
 			input name: "alarmLEDflash", type: "bool", title: "Alarm LED flash"
 			// defaultValue: false
-			input name: "comfortLED", type: "number", title: "Comfort LED (0-25 x 10 sec.)", range: "0..25"
+			input name: "comfortLED", type: "number", title: "Comfort LED (x10 sec.)", range: "0..25"
 			// defaultValue: 0
 			input name: "tamper", type: "bool", title: "Tamper alert"
 			// defaultValue: false
@@ -83,23 +84,46 @@ metadata {
 	}
 }
 
+// Perform a periodic check to ensure that initialization of the device was successful
+def getINIT_VERIFY_CHECK_PERIODIC_SECS() {30}
+def getINIT_VERIFY_CHECK_MAX_ATTEMPTS() {3}
+
 def installed() {
 	log.debug "installed()"
 	// Device-Watch simply pings if no device events received for 122min(checkInterval)
 	sendEvent(name: "checkInterval", value: 2 * 60 * 60 + 2 * 60, isStateChanged: true, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID, offlinePingable: "1"])
+	state.initializeAttempts = 0
 	initialize()
 }
 
 def updated() {
 	log.debug "updated()"
 	state.configured = false
+	state.initializeAttempts = 0
 	// Device-Watch simply pings if no device events received for 122min(checkInterval)
 	sendEvent(name: "checkInterval", value: 2 * 60 * 60 + 2 * 60, isStateChanged: true, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID, offlinePingable: "1"])
-	runIn(12, "initialize", [overwrite: true, forceForLocallyExecuting: true])
+	log.debug "updated(): Schedule in ${INIT_VERIFY_CHECK_PERIODIC_SECS} secs to verify initilization"
+	runIn(INIT_VERIFY_CHECK_PERIODIC_SECS, "initializeCallback", [overwrite: true, forceForLocallyExecuting: true])
+}
+
+def initializeCallback() {
+	log.debug "initializeCallback()"
+	state.initializeVerifyTimerPending = false
+	initialize()
 }
 
 def initialize() {
-	log.debug "initialize()"
+	if (state.initializeVerifyTimerPending) {
+		log.warn "Initialize(): Verification is pending"
+		return
+	}
+
+	log.debug "initialize (Attempt: ${state.initializeAttempts + 1}/${INIT_VERIFY_CHECK_MAX_ATTEMPTS})"
+	if (state.initializeAttempts >= INIT_VERIFY_CHECK_MAX_ATTEMPTS) {
+		log.warn "Initializition of ${device.displayName} has failed with too many attempts"
+		return
+	}
+	
 	def cmds = []
 
 	if (!device.currentState("alarm")) {
@@ -121,10 +145,15 @@ def initialize() {
 		cmds << getConfigurationCommands()
 	}
 
-	// if there's anything we need to send, send it now, and check again in 12s
+	// if there's anything we need to send, send it now, and check again at a later time
 	if (cmds.size > 0) {
 		sendHubCommand(cmds)
-		runIn(12, "initialize", [overwrite: true, forceForLocallyExecuting: true])
+		state.initializeAttempts = state.initializeAttempts + 1
+		state.initializeVerifyTimerPending = true
+		log.debug "initialize(): Schedule in ${INIT_VERIFY_CHECK_PERIODIC_SECS} secs to verify initilization"
+		runIn(INIT_VERIFY_CHECK_PERIODIC_SECS, "initializeCallback", [overwrite: true, forceForLocallyExecuting: true])
+	} else {
+		log.debug "Initialization is complete!"
 	}
 }
 

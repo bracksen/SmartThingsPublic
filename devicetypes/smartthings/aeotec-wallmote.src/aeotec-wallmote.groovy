@@ -49,9 +49,10 @@ def getNumberOfButtons() {
 }
 
 def installed() {
-    sendEvent(name: "numberOfButtons", value: numberOfButtons)
-    sendEvent(name: "supportedButtonValues", value: ["pushed", "held"])
-    sendEvent(name: "button", value: "pushed", data: [buttonNumber: 1])
+    createChildDevices()
+    sendEvent(name: "numberOfButtons", value: numberOfButtons, displayed: false)
+    sendEvent(name: "supportedButtonValues", value: ["pushed", "held"].encodeAsJson(), displayed: false)
+    sendEvent(name: "button", value: "pushed", data: [buttonNumber: 1], displayed: false)
 }
 
 def updated() {
@@ -68,7 +69,6 @@ def updated() {
 
 def configure() {
     sendEvent(name: "DeviceWatch-Enroll", value: [protocol: "zwave", scheme:"untracked"].encodeAsJson(), displayed: false)
-    createChildDevices()
     response([
             secure(zwave.batteryV1.batteryGet()),
             "delay 2000",
@@ -99,7 +99,7 @@ def zwaveEvent(physicalgraph.zwave.commands.centralscenev1.CentralSceneNotificat
         return []
     }
     def child = getChildDevice(button)
-    child?.sendEvent(name: "button", value: value, data: [buttonNumber: button], descriptionText: "$child.displayName was $value", isStateChange: true)
+    child?.sendEvent(name: "button", value: value, data: [buttonNumber: 1], descriptionText: "$child.displayName was $value", isStateChange: true)
     createEvent(name: "button", value: value, data: [buttonNumber: button], descriptionText: "$device.displayName button $button was $value", isStateChange: true)
 }
 
@@ -149,7 +149,8 @@ def createChildDevices() {
             child = addChildDevice("Child Button", "${device.deviceNetworkId}:${i}", device.hubId,
                     [completedSetup: true, label: "${device.displayName} button ${i}",
                      isComponent: true, componentName: "button$i", componentLabel: "Button $i"])
-            child.sendEvent(name: "button", value: "pushed", data: [buttonNumber: i], descriptionText: "$child.displayName was pushed", isStateChange: true)
+            child.sendEvent(name: "supportedButtonValues", value: ["pushed", "held"].encodeAsJson(), displayed: false)
+            child.sendEvent(name: "button", value: "pushed", data: [buttonNumber: 1], descriptionText: "$child.displayName was pushed", isStateChange: true, displayed: false)
         }
     }
 }
